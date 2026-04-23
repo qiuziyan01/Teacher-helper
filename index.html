@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>课堂助手 Pro++</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    margin: 0;
+    font-family: "Segoe UI";
+    background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.container {
+    max-width: 1000px;
+    margin: auto;
+    padding: 20px;
+}
+
+h1 { text-align: center; color: white; }
+
+.card {
+    background: white;
+    border-radius: 15px;
+    padding: 20px;
+    margin-top: 20px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+}
+
+input, select {
+    padding: 10px;
+    margin: 5px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+}
+
+button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 8px;
+    background: #667eea;
+    color: white;
+    cursor: pointer;
+}
+
+.delete {
+    background: red;
+}
+
+.student {
+    display: flex;
+    justify-content: space-between;
+    background: #f1f3f8;
+    padding: 10px;
+    margin: 5px 0;
+    border-radius: 8px;
+}
+
+.small-input {
+    width: 60px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>📚 智能课堂助手 Pro++</h1>
+
+<!-- 班级 -->
+<div class="card">
+    <h2>班级管理</h2>
+    <input id="className" placeholder="班级名称">
+    <button onclick="addClass()">添加</button>
+    <button class="delete" onclick="deleteClass()">删除当前班级</button>
+    <br>
+    <select id="classSelect" onchange="switchClass()"></select>
+</div>
+
+<!-- 添加学生 -->
+<div class="card">
+    <h2>添加学生</h2>
+    <input id="studentName" placeholder="姓名">
+    <button onclick="addStudent()">添加</button>
+</div>
+
+<!-- 学生 -->
+<div class="card">
+    <h2>学生表现</h2>
+    <div id="studentList"></div>
+</div>
+
+<!-- 图表 -->
+<div class="card">
+    <h2>📊 数据分析</h2>
+    <button onclick="drawChart()">生成图表</button>
+    <canvas id="chart"></canvas>
+</div>
+
+</div>
+
+<script>
+let data = JSON.parse(localStorage.getItem("classes")) || {};
+let currentClass = "";
+
+function save() {
+    localStorage.setItem("classes", JSON.stringify(data));
+}
+
+/* ========== 班级功能 ========== */
+
+function addClass() {
+    let name = document.getElementById("className").value.trim();
+    if (!name) return;
+
+    if (data[name]) {
+        alert("班级已存在！");
+        return;
+    }
+
+    data[name] = [];
+    currentClass = name;
+    updateClassUI();
+    save();
+}
+
+function deleteClass() {
+    if (!currentClass) return;
+
+    if (!confirm("确定删除该班级？")) return;
+
+    delete data[currentClass];
+    currentClass = Object.keys(data)[0] || "";
+    updateClassUI();
+    save();
+}
+
+function updateClassUI() {
+    let select = document.getElementById("classSelect");
+    select.innerHTML = "";
+
+    for (let c in data) {
+        let option = document.createElement("option");
+        option.value = c;
+        option.text = c;
+        select.appendChild(option);
+    }
+
+    select.value = currentClass;
+    render();
+}
+
+function switchClass() {
+    currentClass = document.getElementById("classSelect").value;
+    render();
+}
+
+/* ========== 学生功能 ========== */
+
+function addStudent() {
+    let name = document.getElementById("studentName").value.trim();
+    if (!name || !currentClass) return;
+
+    let students = data[currentClass];
+
+    if (students.some(s => s.name === name)) {
+        alert("该学生已存在！");
+        return;
+    }
+
+    students.push({
+        name,
+        score: 0,
+        task: 0
+    });
+
+    save();
+    render();
+}
+
+function deleteStudent(i) {
+    if (!confirm("删除该学生？")) return;
+
+    data[currentClass].splice(i, 1);
+    save();
+    render();
+}
+
+function changeScore(i, val) {
+    data[currentClass][i].score += val;
+    save();
+    render();
+}
+
+function changeTask(i, val) {
+    data[currentClass][i].task = val;
+    save();
+}
+
+/* ========== 渲染 ========== */
+
+function render() {
+    let list = document.getElementById("studentList");
+    list.innerHTML = "";
+
+    let students = data[currentClass] || [];
+
+    students.forEach((s, i) => {
+        let div = document.createElement("div");
+        div.className = "student";
+
+        div.innerHTML = `
+            <div>
+                ${s.name}<br>
+                积分：${s.score}
+            </div>
+            <div>
+                <button onclick="changeScore(${i},1)">+1</button>
+                <button onclick="changeScore(${i},-1)">-1</button>
+                <button class="delete" onclick="deleteStudent(${i})">删除</button>
+                <br><br>
+                任务评分：
+                <input class="small-input" type="number" min="0" max="100"
+                    value="${s.task}"
+                    onchange="changeTask(${i}, this.value)">
+            </div>
+        `;
+
+        list.appendChild(div);
+    });
+}
+
+/* ========== 图表 ========== */
+
+function drawChart() {
+    let students = data[currentClass] || [];
+
+    // ✅ 没数据时清空图表
+    if (!students.length) {
+        if (window.chart instanceof Chart) {
+            window.chart.destroy();
+        }
+        return;
+    }
+
+    let labels = students.map(s => s.name);
+    let scores = students.map(s => s.score);
+
+    // ✅ 防止 task 是 undefined / 空字符串
+    let tasks = students.map(s => Number(s.task) || 0);
+
+    // ❗关键修复：必须获取 2D 上下文
+    let ctx = document.getElementById("chart").getContext("2d");
+
+    // ✅ 安全销毁旧图表
+    if (window.chart instanceof Chart) {
+        window.chart.destroy();
+    }
+
+    // ✅ 创建图表
+    window.chart = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: "课堂积分",
+                    data: scores
+                },
+                {
+                    label: "任务完成度",
+                    data: tasks
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            animation: {
+                duration: 500
+            }
+        }
+    });
+}
+
+/* 初始化 */
+updateClassUI();
+</script>
+
+</body>
+</html>
